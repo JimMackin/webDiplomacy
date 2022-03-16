@@ -50,7 +50,7 @@ class setMemberOrderStatus extends set {
 
 	/**
 	 * None,Saved,Completed,Ready
-	 * @return unknown_type
+	 * @return string
 	 */
 	function icon() {
 		if( $this->None )
@@ -104,7 +104,7 @@ class setVariantStatus extends set {
 	protected $allowed=array('Installed','Allowed','Enabled');
 }
 class setUserNotifications extends set {
-	protected $allowed=array('PrivateMessage', 'GameMessage', 'Unfinalized', 'GameUpdate');
+	protected $allowed=array('PrivateMessage', 'GameMessage', 'Unfinalized', 'GameUpdate', 'ModForum', 'CountrySwitch', 'ForceModMessage');
 }
 
 ?>

@@ -77,17 +77,11 @@ class libGameMaster
 
 			$DB->sql_put("DELETE FROM wD_Sessions WHERE userID IN (".$userIDs.")");
 
-			if( isset(Config::$customForumURL) )
-			{
-				$DB->sql_put("UPDATE wD_Users
+			$DB->sql_put("UPDATE wD_Users
 					SET timeLastSessionEnded = ".time().", lastMessageIDViewed = (SELECT MAX(f.id) FROM wD_ForumMessages f)
+					, lastModMessageIDViewed = (SELECT MAX(fm.id) FROM wD_ModForumMessages fm)
 					WHERE id IN (".$userIDs.")");
-			}
-			else
-			{
-				// No need for this query if using a third party DB
-				$DB->sql_put("UPDATE wD_Users SET timeLastSessionEnded = ".time()." WHERE id IN (".$userIDs.")");
-			}
+
 		}
 
 		$DB->sql_put("COMMIT");
@@ -120,6 +114,33 @@ class libGameMaster
 		-(6*(SELECT COUNT(1) FROM wD_MissedTurns t  WHERE t.userID = u.id AND t.liveGame = 1 AND t.modExcused = 0 and t.samePeriodExcused = 0 and t.systemExcused = 0 and t.turnDateTime > ".$lastWeek."))
 		-(5*(SELECT COUNT(1) FROM wD_MissedTurns t  WHERE t.userID = u.id AND t.liveGame = 1 AND t.modExcused = 0 and t.samePeriodExcused = 0 and t.systemExcused = 0 and t.turnDateTime > ".$lastMonth."))
 		-(5*(SELECT COUNT(1) FROM wD_MissedTurns t  WHERE t.userID = u.id AND t.liveGame = 0 AND t.modExcused = 0 and t.samePeriodExcused = 0 and t.systemExcused = 0 and t.turnDateTime > ".$year.")))";
+
+		// VDips way to handle the Reliability rating. Maybe needs to adjusted or replaced by the original webDip querry in the future...
+		$RELIABILITY_QUERY = "
+		UPDATE wD_Users u 
+		SET u.cdCount = (SELECT COUNT(1) FROM wD_CivilDisorders c WHERE c.userID = u.id AND c.forcedByMod=0),
+			u.nmrCount = (SELECT COUNT(1) FROM wD_NMRs n WHERE n.userID = u.id AND n.ignoreNMR=0),
+			u.gameCount = ( 
+				SELECT (COUNT(1) + 
+				(SELECT COUNT(*) FROM wD_Members m WHERE m.userID = u.id and ((select count(1) from wD_Members M1 where M1.gameID = m.gameID) > 2))) 
+				FROM wD_CivilDisorders c 
+				LEFT JOIN wD_Members m ON c.gameID = m.gameID AND c.userID = m.userID AND c.countryID = m.countryID 
+				WHERE m.id IS NULL AND c.userID = u.id
+			),
+			u.cdTakenCount = (
+				SELECT COUNT(1)
+				FROM wD_Members ct
+				INNER JOIN wD_CivilDisorders c ON c.gameID = ct.gameID AND c.countryID = ct.countryID AND NOT c.userID = ct.userID
+				WHERE ct.userID = u.id AND c.turn = (
+					SELECT MAX(sc.turn) 
+					FROM wD_CivilDisorders sc 
+					WHERE sc.gameID = c.gameID AND sc.countryID = c.countryID
+				)
+			),
+			u.reliabilityRating = (POW( (
+				(100 * ( 1.0 - ((cast(u.cdCount as signed) + u.deletedCDs) / (u.gameCount+1)) ))
+				+  (100 * (1.0 -   ((u.nmrCount)/(u.phaseCount+1))))
+			)/2 , 3)/10000)";
 			
 		// Calculates the RR for members. 
 		$DB->sql_put($RELIABILITY_QUERY. ($recalculateAll ? "" : " WHERE u.timeLastSessionEnded+(30*86400) > ".$Misc->LastProcessTime));

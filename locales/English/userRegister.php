@@ -32,5 +32,7 @@ defined('IN_CODE') or die('This script can not be run by itself.');
 	{
 		print $_REQUEST['userForm']['username'];
 	}
+	?>"></li>
+<li class="formlistdesc">Your vDiplomacy username.</li>
 	?>">
 </p>

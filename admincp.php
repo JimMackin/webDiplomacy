@@ -144,7 +144,7 @@ function adminCPTabs()
 		$tab = $_SESSION['adminCPTab'];
 	}
 
-	print '<div class="topnav">';
+	print '<div class="gamelistings-tabs">';
 	foreach($tabs as $tabChoice=>$tabTitle)
 	{
 		print '<a title="'.$tabTitle.'" alt="'.l_t($tabChoice).'" href="admincp.php?tab='.$tabChoice;
@@ -152,7 +152,7 @@ function adminCPTabs()
 		if ( $tab == $tabChoice )
 			print '"class="topnavActive"';
 		else
-			print '"class="topnav"';
+			print '"class="gamelistings-tabs"';
 
 		print '>'.l_t($tabChoice).'</a></li>';
 	}
@@ -200,3 +200,4 @@ print '</div>';
 libHTML::footer();
 
 ?>
+

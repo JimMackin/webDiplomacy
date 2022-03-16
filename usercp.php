@@ -29,7 +29,6 @@ require_once('header.php');
 
 require_once(l_r('objects/mailer.php'));
 
-// Test commit #2, on staging branch
 global $Mailer;
 $Mailer = new Mailer();
 
@@ -63,10 +62,31 @@ if ( isset($_REQUEST['userForm']) )
 {
 	libAuth::formToken_Valid();
 	
+
+	// A small hack for the RSS-Button
+	if (isset($_POST['rssButton']))
+	{
+		if ($_POST['rssButton'] != "Delete")
+		{
+			do {
+				$rssID = ''; $keyspace = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+				$max = mb_strlen($keyspace, '8bit') - 1;
+				for ($i = 0; $i < 30; ++$i)
+					$rssID .= $keyspace[random_int(0, $max)];
+
+				$DB->sql_put("UPDATE wD_Users SET rssID = '".$rssID."' WHERE id = ".$User->id);
+				list($ok) = $DB->sql_row('SELECT count(*) FROM wD_Users WHERE rssID="'.$rssID.'"');
+			} while ($ok > 1);
+		} else {
+			$DB->sql_put("UPDATE wD_Users SET rssID = '' WHERE id = ".$User->id);
+		}
+	}
+
 	$formOutput = '';
 
 	try
 	{
+
 		$errors = array();
 		$SQLVars = User::processForm($_REQUEST['userForm'], $errors);
 
@@ -75,7 +95,20 @@ if ( isset($_REQUEST['userForm']) )
 
 		unset($errors);
 
-		$allowed = array('E-mail'=>'email','E-mail hiding'=>'hideEmail', 'Homepage'=>'homepage','Comment'=>'comment');
+		$allowed = array(
+				'showCountryNames'=>'showCountryNames',
+				'showCountryNamesMap'=>'showCountryNamesMap',
+				'color Correct'=>'colorCorrect',
+				'SortOrder'=>'sortOrder',
+				'UnitOrder'=>'unitOrder',
+				'pointNClick opt in'=>'pointNClick',
+				'Add greyout overlay'=>'terrGrey',
+				'greyout intensity' => 'greyOut',
+				'cssStyle'=>'cssStyle',
+				'forceDesktop'=>'forceDesktop',
+				'Remove scrollbars from smallmap'=>'scrollbars',
+				'Button size'=>'buttonWidth',
+				'E-mail'=>'email','E-mail hiding'=>'hideEmail', 'Homepage'=>'homepage','Comment'=>'comment');
 
 		$User->options->set($_REQUEST['userForm']);
 		$User->options->load();
@@ -115,30 +148,6 @@ if ( isset($_REQUEST['userForm']) )
 
 			$set .= $SQLName." = '".$SQLVars[$SQLName]."'";
 			$formOutput .= l_t('%s updated successfully.',$name).' ';
-		}
-
-		// Check if there are any changes to the opt-in features:
-		if( isset(Config::$enabledOptInFeatures) && Config::$enabledOptInFeatures > 0 )
-		{
-			$previousOptInFeatures = $User->optInFeatures;
-			for( $featureFlag=1; pow(2, $featureFlag) < Config::$enabledOptInFeatures; $featureFlag *= 2 )
-			{
-				if( ( $featureFlag & Config::$enabledOptInFeatures ) == 0 ) continue;
-
-				if( key_exists('optInFeature_' . $featureFlag, $_REQUEST['userForm']) )
-				{
-					if( $_REQUEST['userForm']['optInFeature_' . $featureFlag ] == "1" )
-						$User->optInFeatures = $User->optInFeatures | $featureFlag;
-					else
-						$User->optInFeatures = $User->optInFeatures & ~$featureFlag;
-				}
-			}
-			if( $previousOptInFeatures != $User->optInFeatures )
-			{
-				if ( $set != '' ) $set .= ', ';
-				$set .= "optInFeatures = " . $User->optInFeatures;
-				$formOutput .= l_t('Optional feature set selection updated.').' ';
-			}
 		}
 
 		if ( $set != '' )
@@ -188,6 +197,34 @@ if (isset($_COOKIE['wD-Tutorial-Settings']))
 	setcookie('wD-Tutorial-Settings', '', time()-3600);
 }
 
+function printAndFindTab()
+{
+	global $User, $Misc;
+
+	$tabs = array();
+
+	$tabs['General']=l_t("General settings");
+	$tabs['Features']=l_t("Special features");
+	$tabs['IAmap']=l_t("Interactive map");
+	$tabs['CountrySwitch']=l_t("Send your games to other players");
+
+	$tab = 'General';
+	$tabNames = array_keys($tabs);
+
+	if( isset($_REQUEST['tab']) && in_array($_REQUEST['tab'], $tabNames) )
+		$tab = $_REQUEST['tab'];
+
+	print '<div class="gamelistings-tabs">';
+	foreach($tabs as $tabChoice=>$tabTitle)
+	{
+		print '<a title="'.$tabTitle.'" href="usercp.php?tab='.$tabChoice;
+		print ( ( $tab == $tabChoice ) ?  '" class="current"' : '"');
+		print '>'.l_t($tabChoice).'</a>';
+	}
+	print '</div>';
+	return $tab;
+}
+
 print libHTML::pageTitle(l_t('User account settings'),l_t('Control settings for your account.'));
 
 print '
@@ -199,8 +236,26 @@ If you leave the default of "yes" it is only visible to moderators.</div></br>
 <form method="post" class = "settings_show" autocomplete="off">
 <ul class="formlist">';
 
-require_once(l_r('locales/English/user.php'));
+$tab = printAndFindTab();
+print '<br>';
 
+switch($tab)
+{
+	case 'Features':
+		require_once(l_r('locales/English/accessability.php'));
+		break;
+	case 'CountrySwitch':
+		require_once(l_r('locales/English/countryswitch.php'));
+		break;
+	case 'IAmap':
+		require_once(l_r('locales/English/IAmap.php'));
+		break;
+	default:
+		require_once(l_r('locales/English/user.php'));
+}
+
+print libAuth::formTokenHTML();
+print '</form></div>';
 print '</div>';
 
 libHTML::$footerIncludes[] = l_j('help.js');

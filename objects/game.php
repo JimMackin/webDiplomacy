@@ -50,13 +50,19 @@ class Game
 
 	public static function mapFilename($gameID, $turn, $mapType=false)
 	{
+		global $Game;
+		
 		if( $mapType==false ) $mapType = self::mapType();
 
 		if( defined('DATC') )
 			$folder='datc/maps';
 		else
 			$folder=self::gameFolder($gameID);
-
+		
+		
+		if( defined('DATC') && $Game->variantID != 1)
+			$turn = ($Game->variantID*1000)+$turn;
+			
 		$filename=$turn.'-'.$mapType.'.map';
 
 		return $folder.'/'.$filename;
@@ -172,7 +178,7 @@ class Game
 	// Arrays of aggregate objects
 	/**
 	 * An array of Member(/processMember) objects indexed by countryID
-	 * @var array
+	 * @var object
 	 */
 	public $Members;
 
@@ -242,12 +248,95 @@ class Game
 	public $minimumReliabilityRating;
 
 	public $civilDisorderInfo;
+	/**
+	 * Any value > 0 ends the game after the given turn. Winner is the one with the most SC at this time.
+	 * @var int
+	 */
+	 public $maxTurns;
+	 
+	/**
+	 * Any value > 0 ends the game after a player reaches the given SC count. Winner is the one with the most SC at this time.
+	 * @var int
+	 */
+	 public $targetSCs;
+	 
+	/**
+	 * Some special settings to restrict acces to players based on their phases played
+	 * @var int
+	 */
+	 public $minPhases;
 
 	/**
 	 * The number of allowed NMRs per player before they are set in Civil Disorder.
 	 */
 	public $excusedMissedTurns;
+	
+	/**
+	 * The number of consecutive turns without a miss needed to regain an excuse.
+	 */
+	public $regainExcusesDuration;
 
+	/**
+	 * Some settings to force a CD on early NMRs
+	 */
+	 public $delayDeadlineMaxTurn;
+	 
+	/**
+	 * How to handle RL-friends (None, Strict, Only)
+	 */
+	 public $rlPolicy;
+	 
+	/**
+	 * ChessTimer (Countdown timer)
+	 */
+	public $chessTime;
+	 
+	/**
+	 * adminLock, Yes or No (Admins can lock a game for interaction for bugfixing)
+	 *
+	 * @var string
+	 */
+	public $adminLock;
+	
+	/**
+	 * directorUserID, The userID of the Director for this game or "0" if there is none.
+	 *
+	 * @var string
+	 */
+	public $directorUserID;
+	
+	/**
+	 * chooseYourCountry (Yes or No), do the players get to choose their starting countries or is it random.
+	 *
+	 * @var string
+	 */
+	public $chooseYourCountry;
+	
+	/**
+	 * Description of the game and special rules...
+	 */
+	public $description;
+	
+	/**
+	 * Set of weekdays not to process the game (0=Sunday, 6=Saturday)
+	 */
+	public $noProcess;
+	
+	/**
+	 * Set some votes to be blocked for the game.
+	 */
+	public $blockVotes;
+	
+	/**
+	 * Should the game wait for the full pregame duration to start? (Yes/No)
+	 */
+	public $fixStart;
+	
+	/**
+	 * Admins may set a modifier to allow a smaller effect on point-distribution for disrupted games 
+	 */
+	public $potModifier;
+	
 	/**
 	 * Is the game made of up members only, 1 member and bot(s), or mixed.
 	 */
@@ -465,7 +554,24 @@ class Game
 			g.minimumReliabilityRating,
 			g.excusedMissedTurns,
 			g.playerTypes,
-			g.startTime
+			g.startTime,
+			g.maxTurns,
+			g.targetSCs,
+			g.minPhases,
+			g.regainExcusesDuration,
+			g.delayDeadlineMaxTurn,
+			g.rlPolicy,
+			g.chessTime,
+			g.adminLock,
+			g.directorUserID,
+			g.chooseYourCountry,
+			g.description,
+			g.noProcess,
+			g.fixStart,
+			g.blockVotes,
+			g.potModifier,
+			g.missingPlayerPolicy,
+			g.playerTypes
 			FROM wD_Games g
 			WHERE g.id=".$this->id.' '.$this->lockMode);
 
@@ -524,7 +630,7 @@ class Game
 	 */
 	function gameovertxt($map=FALSE)
 	{
-		assert ('$this->gameOver != "No"');
+		assert ($this->gameOver != "No");
 
 		switch($this->gameOver)
 		{
@@ -569,6 +675,7 @@ class Game
 	 **/
 	function isLiveGame()
 	{
+		if ($this->fixStart == 'Yes') return true;
 		return $this->phaseMinutes < 60;
 	}
 
@@ -615,7 +722,7 @@ class Game
 	 */
 	function needsProcess()
 	{
-		global $Misc;
+		global $Misc, $DB;
 
 		/*
 		 * - Games are processing as normal
@@ -637,7 +744,7 @@ class Game
 			)
 			return true;
 		else
-			return false;
+			return false;			
 	}
     /**
      * Game name

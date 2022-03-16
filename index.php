@@ -137,7 +137,7 @@ class libHome
 		if ( $message )
 			print '<p class="notice">'.$message.'</p>';
 
-		$pms = self::getType('PM',50);
+		$pms = self::getType('PM', 200);
 
 		if(!count($pms))
 		{
@@ -209,7 +209,7 @@ class libHome
 		$i=1;
 		while(list($userID,$username,$points)=$DB->tabl_row($tabl))
 		{
-			$rows[] = '#'.$i.': <a href="userprofile.php?userID='.$userID.'">'.$username.'</a> ('.$points.libHTML::points().')';
+			$rows[] = '#'.$i.': <a href="profile.php?userID='.$userID.'">'.$username.'</a> ('.$points.libHTML::points().')';
 			$i++;
 		}
 		return $rows;
@@ -320,12 +320,15 @@ class libHome
 	{
 		global $User, $DB;
 
+		// Load all active games
 		$tabl=$DB->sql_tabl("SELECT g.* FROM wD_Games g
-			INNER JOIN wD_Members m ON ( m.userID = ".$User->id." AND m.gameID = g.id )
+			INNER JOIN wD_Members m ON ( (m.userID = ".$User->id." OR g.directorUserID = ".$User->id.") AND m.gameID = g.id )
 			WHERE NOT g.phase = 'Finished' and m.status <> 'Defeated'
+			GROUP BY g.id
 			ORDER BY g.processStatus ASC, g.processTime ASC");
 		$buf = '';
-
+		$bufDef = $bufPause = $bufPregame = '';
+		
 		$count=0;
 		while($game=$DB->tabl_hash($tabl))
 		{
@@ -333,9 +336,20 @@ class libHome
 			$Variant=libVariant::loadFromVariantID($game['variantID']);
 			$Game=$Variant->panelGameHome($game);
 
-			$buf .= $Game->summary();
+			if (isset($Game->Members->ByUserID[$User->id]) && $Game->Members->ByUserID[$User->id]->status == 'Defeated')
+				$bufDef .= '<div class="hr"></div>'.$Game->summary();
+			elseif ($Game->processStatus == 'Paused')
+				$bufPause .= '<div class="hr"></div>'.$Game->summary();
+			elseif ($Game->phase == 'Pre-game')
+				$bufPregame .= '<div class="hr"></div>'.$Game->summary();
+			else
+				$buf .= '<div class="hr"></div>' . $Game->summary();
 		}
-
+		
+		if ($bufPause != '')   $buf .= $bufPause;
+		if ($bufPregame != '') $buf .= $bufPregame;
+		if ($bufDef != '')     $buf .= '<div class="hr"></div><div><p class="notice"><br />'.l_t('Defeated:').'</p></div>'.$bufDef;
+		
 		if($count==0)
 		{
 			$buf .= '<div class="hr"></div>';
@@ -392,12 +406,13 @@ class libHome
 	static function forumNew() 
 	{
 		// Select by id, prints replies and new threads
-		global $DB, $Misc;
+		global $DB, $Misc, $User;
 
 		$tabl = $DB->sql_tabl("
 			SELECT m.id as postID, t.id as threadID, m.type, m.timeSent, IF(t.replies IS NULL,m.replies,t.replies) as replies,
 				IF(t.subject IS NULL,m.subject,t.subject) as subject,
-				u.id as userID, u.username, u.points, IF(s.userID IS NULL,0,0) as online, u.type as userType,
+				m.anon,
+				u.id as userID, u.username, u.vpoints, IF(s.userID IS NULL,0,0) as online, u.type as userType,
 				SUBSTRING(m.message,1,100) as message, m.latestReplySent, t.fromUserID as threadStarterUserID
 			FROM wD_ForumMessages m
 			INNER JOIN wD_Users u ON ( m.fromUserID = u.id )
@@ -410,10 +425,24 @@ class libHome
 
 		$threadIDs = array();
 		$threads = array();
-
-		while(list($postID, $threadID, $type, $timeSent, $replies, $subject, $userID, $username, $points, $online, $userType, $message, $latestReplySent,$threadStarterUserID
+		
+		while(list(
+				$postID, $threadID, $type, $timeSent, $replies, $subject,
+				$anon,
+				$userID, $username, $points, $online, $userType, $message, $latestReplySent,$threadStarterUserID
 			) = $DB->tabl_row($tabl))
 		{
+		
+			// Anonymize the forum posts on the home-screen too
+			if ($anon == 'Yes')
+			{
+				$username = 'Anon';
+				$userID = 0;
+				$points = '??';
+				$userType = 'User';
+			}
+			// End anonymizer
+			
 			$threadCount++;
 
 			if( $threadID )
@@ -441,7 +470,7 @@ class libHome
 				'message'=>$message,'points'=>$points, 'online'=>$online, 'userType'=>$userType, 'timeSent'=>$timeSent
 			);
 		}
-
+		
 		$buf = '';
 		$threadCount=0;
 		foreach($threadIDs as $threadID)
@@ -467,8 +496,8 @@ class libHome
 				$buf .= '<div class="homeForumPost homeForumPostAlt'.libHTML::alternate().' userID'.$post['userID'].'">
 
 					<div class="homeForumPostTime">'.libTime::text($post['timeSent']).' '.$post['iconMessage'].'</div>
-					<a href="userprofile.php?userID='.$post['userID'].'" class="light">'.$post['username'].'</a>
-						'.' ('.$post['points'].libHTML::points().
+					<a href="profile.php?userID='.$post['userID'].'" class="light">'.$post['username'].'</a>
+						'.' ('.$post['points'].libHTML::vpoints().
 						User::typeIcon($post['userType']).')
 
 					<div style="clear:both"></div>
@@ -485,6 +514,9 @@ class libHome
 
 		if( $buf )
 		{
+			// First remove the mod-alerts from the home-forum-view.
+			$buf = str_replace('<img src="images/icons/alert_minor.png" alt="(!)" title="ModAlert" />','',$buf);
+			// Than return the buffer.
 			return $buf;
 		}
 		else
@@ -555,7 +587,7 @@ class libHome
 					$buf .= '<div style="clear:both"></div>';
 					$buf .= '<div class="homeForumPostTime" style="float:right"><em>'.libTime::text($t['topic_time']).'</em></div>';
 					$buf .= '<span style=\'font-size:90%\'>';
-					$buf .= 'Thread:</span> <a href="userprofile.php?userID='.$t['topic_poster_webdip'].'" class="light">'.$t['topic_first_poster_name'].'</a> ';
+					$buf .= 'Thread:</span> <a href="profile.php?userID='.$t['topic_poster_webdip'].'" class="light">'.$t['topic_first_poster_name'].'</a> ';
 					$buf .= '<div style="clear:both"></div></div>';
 					$buf .= '<div class="homeForumPost homeForumPostAlt'.$alt.'">';
 
@@ -566,7 +598,7 @@ class libHome
 						$buf .= '<div class="" style="margin-bottom:5px;margin-left:3px; margin-right:3px;">';
 						$buf .= '<div class="homeForumPostTime" style="float:right;font-weight:bold"><em>'.libTime::text($t['topic_last_post_time']).'</em></div>';
 						$buf .= '<span class="home-forum-latest">';
-						$buf .= 'Latest:</span> <a href="userprofile.php?userID='.$t['topic_last_poster_webdip'].'" class="light">'.$t['topic_last_poster_name'].'</a> '
+						$buf .= 'Latest:</span> <a href="profile.php?userID='.$t['topic_last_poster_webdip'].'" class="light">'.$t['topic_last_poster_name'].'</a> '
 						.'</div>';
 					}
 
@@ -612,20 +644,20 @@ class libHome
 if( !$User->type['User'] )
 {
 	print '<div class = "introToDiplomacy"><div class="content-notice" style="text-align:center">'.libHome::globalInfo().'</div></div>';
-	print libHTML::pageTitle(l_t('Welcome to webDiplomacy!'),l_t('A multiplayer web implementation of the popular turn-based strategy game Diplomacy.'));
+	print libHTML::pageTitle(l_t('Welcome to vDiplomacy!'),l_t('A multiplayer web implementation of the popular turn-based strategy game Diplomacy.'));
 	//print '<div class="content">';
 	?>
 	<p style="text-align: center;"><img
-	src="<?php print l_s('images/startmap.png'); ?>" alt="<?php print l_t('The map'); ?>"
-	title="<?php print l_t('A webDiplomacy map'); ?>" /></p>
-	<div class = "introToDiplomacy_show"><p class="welcome"><?php print l_t('<em> "Luck plays no part in Diplomacy. Cunning and
-	cleverness, honesty and perfectly-timed betrayal are the tools needed to
-	outwit your fellow players. The most skillful negotiator will climb to
-	victory over the backs of both enemies and friends.<br />
-	<br />
+	src="<?php print l_s('images/vmap.png'); ?>" alt="<?php print l_t('The map'); ?>"
+	title="<?php print l_t('A vDiplomacy map'); ?>" /></p>
+<div class = "introToDiplomacy_show"><p class="welcome"><?php print l_t('<em> "Luck plays no part in Diplomacy. Cunning and
+cleverness, honesty and perfectly-timed betrayal are the tools needed to
+outwit your fellow players. The most skillful negotiator will climb to
+victory over the backs of both enemies and friends.<br />
+<br />
 
-	Who do you trust?"<br />
-	(<a href="https://avalonhill.wizards.com/games/diplomacy">Avalon Hill</a>)</em>'); ?></p>
+Who do you trust?"<br />
+(<a href="https://avalonhill.wizards.com/games/diplomacy">Avalon Hill</a>)</em>'); ?></p>
 	<?php
 	print '</div></div>';
 
@@ -681,7 +713,7 @@ else
 			is to entering orders prior to deadlines. Whether you decide to be a casual Diplomacy player or a very dedicated player,
 			it is important to enter orders prior to the deadlines so that the game is fair and balanced for everyone, and so that
 			games are not delayed while players are replaced. Some games require a minimum reliability rating, so it is important to
-			keep it high! You can read more about reliability rating <a href="userprofile.php?userID='.$User->id.'" 
+			keep it high! You can read more about reliability rating <a href="profile.php?userID='.$User->id.'" 
 			target="_blank">here</a>. 
 			<br><br>
 			You are currently on the home screen. This is the landing page that you will see when you log into the site. While you can

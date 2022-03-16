@@ -29,6 +29,7 @@ require_once(l_r('objects/member.php'));
  */
 class Members
 {
+
 	protected $Game;
 
 	public $ByOrder;
@@ -36,6 +37,7 @@ class Members
 	public $ByUserID;
 	public $ByCountryID;
 	public $ByStatus;
+	public $ByRlGroup;
 
 	function SCPercents()
 	{
@@ -81,16 +83,20 @@ class Members
 	 */
 	function pointsPerSupplyCenter()
 	{
-		return ((float)$this->Game->pot / (float)$this->supplyCenterCount('Playing'));
+		if ($this->supplyCenterCount('Playing') > 0)
+			return ((float)$this->Game->pot / (float)$this->supplyCenterCount('Playing'));
+		else
+			return 0;
 	}
 
-	static $votes = array('Draw','Pause','Cancel','Concede');
+	static $votes = array('Draw','Pause','Cancel','Extend','Concede');
 
 	function votesPassed()
 	{
 		global $DB;
 		$votes=self::$votes;
-
+		
+		$ext=0;
 		$concede=0;
 
 		//gets the number of players that are still playing for use of the bot
@@ -141,7 +147,10 @@ class Members
 			else
 			{
 				$votes = array_intersect($votes, $Member->votes);
-				if (in_array('Concede',$Member->votes))	$concede++;
+				if (in_array('Extend' ,$Member->votes))
+					$ext++;
+				if (in_array('Concede',$Member->votes))
+					$concede++;
 			}
 		}
 
@@ -151,10 +160,10 @@ class Members
 			$votes = array('Draw');
 		}
 
+		if ($ext >= 2/3*count($this->ByStatus['Playing']))
+			$votes[]='Extend';
 		if ($concede >= (count($this->ByStatus['Playing']) - 1) && ($concede > 0))
-		{
 			$votes[]='Concede';
-		}
 
 		return $votes;
 	}
@@ -246,27 +255,38 @@ class Members
 	function indexMembers()
 	{
 		$this->ByID=array();
+		$this->ByRlGroup=array();
 		$this->ByUserID=array();
 		$this->ByStatus=array(
 			'Playing'=>array(),'Defeated'=>array(),'Left'=>array(),
 			'Won'=>array(),'Drawn'=>array(),'Survived'=>array(),'Resigned'=>array()
 		);
 
-		if($this->Game->phase == 'Pre-game')
-			$this->ByCountryID=null;
-		else
-			$this->ByCountryID=array();
+//CountrySelect-Patch:
+//  Init the ByCountryID even if in PreGame.
+//		if($this->Game->phase == 'Pre-game')
+//			$this->ByCountryID=null;
+//		else
+//			$this->ByCountryID=array();
+ 
+		$this->ByCountryID=array();
 
 		foreach($this->ByOrder as $Member)
 		{
 			$this->ByID[$Member->id] = $Member;
 			$this->ByStatus[$Member->status][$Member->id] = $Member;
 			$this->ByUserID[$Member->userID] = $Member;
+			$this->ByRlGroup[$Member->rlGroup][] = $Member;
 
 			// If pre-game all countries are 'Unassigned', so members cannot be indexed by countryID.
 			if ( $Member->countryID != 0 )
 				$this->ByCountryID[$Member->countryID] = $Member;
 		}
+		
+		// Small hack to enable country selection if moderated CYOC-game with 0 members.
+		if ($this->Game->phase == 'Pre-game' && count($this->ByCountryID) == 0 && $this->Game->chooseYourCountry == 'Yes')
+			$this->ByCountryID[999] = 0;
+		
 	}
 	public function load()
 	{
@@ -286,8 +306,14 @@ class Members
 				m.supplyCenterNo as supplyCenterNo,
 				m.unitNo as unitNo,
 				m.excusedMissedTurns as excusedMissedTurns,
+				m.chessTime AS chessTime,
+				m.ccMatch AS ccMatch,
+				m.ipMatch AS ipMatch,
 				u.username AS username,
 				u.points AS points,
+				u.vpoints AS vpoints,
+				u.rlGroup AS rlGroup,
+				u.reliabilityRating AS reliabilityRating,		
 				m.pointsWon as pointsWon,
 				IF(s.userID IS NULL,0,1) as online,
 				u.type as userType
@@ -315,7 +341,7 @@ class Members
 
 	function pointsLowestCD()
 	{
-		assert('$this->Game->phase != "Pre-game" && $this->Game->phase != "Finished"');
+		assert($this->Game->phase != 'Pre-game' && $this->Game->phase != 'Finished');
 
 		$pointsLowestCD = false;
 		foreach($this->ByStatus['Left'] as $Member)
@@ -396,6 +422,57 @@ class Members
 			return l_t("joining/leaving games disabled while a problem is resolved");
 		else
 			return false;
+	}
+	
+	// Update the CoocieCode and IP-Match info in the Members-Info
+	function updateCCIP()
+	{
+	
+		global $DB;
+	
+		// Get all UserIDs
+		$allUserIDs = array();
+		foreach($this->ByID as $id=>$Member)
+			$allUserIDs[] = $Member->userID;
+			
+		foreach($this->ByID as $id=>$Member)
+		{
+			$sql_IPs = "SELECT ip FROM wD_AccessLog WHERE userID = ".$Member->userID." GROUP BY ip";
+			$tabl_IPs = $DB->sql_tabl($sql_IPs);
+			$IPs=array();
+			while ( list($IP) = $DB->tabl_row($tabl_IPs) )
+				$IPs[]=$IP;
+			if (count($IPs) > 0)
+			{
+				list($ipMatch) = $DB->sql_row("
+					SELECT COUNT(*) FROM 
+						(SELECT userID
+							FROM wD_AccessLog
+							WHERE ip IN ( ".implode(',',$IPs)." ) 
+								AND userID <> ".$Member->userID." 
+								AND userID IN ( ".implode(',',$allUserIDs)." ) 
+						GROUP BY userID) AS IPmatch");
+				$DB->sql_put("UPDATE wD_Members SET ipMatch = '".$ipMatch."' WHERE id = ".$Member->id);
+			}
+			
+			$sql_CCs = "SELECT cookieCode FROM wD_AccessLog WHERE userID = ".$Member->userID." GROUP BY cookieCode";
+			$tabl_CCs = $DB->sql_tabl($sql_CCs);
+			$CCs=array();
+			while ( list($CC) = $DB->tabl_row($tabl_CCs) )
+				$CCs[]=$CC;
+			if (count($CCs) > 0)
+			{
+				list($ccMatch) = $DB->sql_row("
+					SELECT COUNT(*) FROM 
+						(SELECT userID
+							FROM wD_AccessLog
+							WHERE cookieCode IN ( ".implode(',',$CCs)." ) 
+								AND userID <> ".$Member->userID." 
+								AND userID IN ( ".implode(',',$allUserIDs)." )  
+						GROUP BY userID) AS ccMatch");
+				$DB->sql_put("UPDATE wD_Members SET ccMatch = '".$ccMatch."' WHERE id = ".$Member->id);
+			}
+		}
 	}
 }
 ?>

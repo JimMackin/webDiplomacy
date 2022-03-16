@@ -40,6 +40,8 @@ print libHTML::pageTitle('Information and Links','Links to pages with more infor
             Any questions on this program can be directed to webdipmentors@gmail.com.
         </p>
     </div>
+  
+<li class="formlistdesc"></li>
 
     <div class = 'help_title'>Contact Information</div>
     <div class = 'help_content'>
@@ -107,7 +109,7 @@ print libHTML::pageTitle('Information and Links','Links to pages with more infor
         </p>
     </div>
 
-<p>Didn't find the help or information you were looking for? Post a message in the <a href="contrib/phpBB3/" class="light">forum</a>, or contact the moderators at <a href="mailto:<?php print (isset(Config::$modEMail) ? Config::$modEMail : Config::$adminEMail); ?>" class="light">
+<p>Didn't find the help or information you were looking for? Post a message in the <a href="forum.php" class="light">forum</a>, or or contact the moderators at <a href="mailto:<?php print (isset(Config::$modEMail) ? Config::$modEMail : Config::$adminEMail); ?>" class="light">
 <?php print (isset(Config::$modEMail) ? Config::$modEMail : Config::$adminEMail); ?></a>.</p>
 
 </div>

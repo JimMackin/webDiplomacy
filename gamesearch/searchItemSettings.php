@@ -231,7 +231,8 @@ class searchPotType extends searchItemRadio
 {
 	public $name='potType';
 	protected $label='Points distribution type';
-	protected $options=array('-'=>'All','Winner-takes-all'=>'Draw-Size Scoring', 'Sum-of-squares'=>'Sum of Squares','Unranked'=>'Unranked');
+//	protected $options=array('-'=>'All','Winner-takes-all'=>'Draw-Size Scoring', 'Sum-of-squares'=>'Sum of Squares','Unranked'=>'Unranked');
+	protected $options=array('-'=>'All','Points-per-supply-center'=>'Points-per-supply-center','Winner-takes-all'=>'Winner-takes-all');
 
 	function sql(&$TABLES,&$WHERE,&$ORDER)
 	{
@@ -241,11 +242,11 @@ class searchPotType extends searchItemRadio
 		}
 	}
 }
-class searchChooseVariant extends searchItemRadio
+class searchChooseVariant extends searchItemSelect
 {
 	public $name='chooseVariant';
 	protected $label='Variant';
-	protected $options=array('-'=>'All');
+	protected $options=array('-'=>' All ');
 
 	function __construct($searchType) {
 
@@ -254,7 +255,7 @@ class searchChooseVariant extends searchItemRadio
 			//$Variant = libVariant::loadFromVariantName($variantName);
 			$this->options[$variantID]=l_t($variantName);//$Variant->fullName;
 		}
-
+		asort ($this->options);
 		parent::__construct($searchType);
 	}
 

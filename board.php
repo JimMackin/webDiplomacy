@@ -34,6 +34,7 @@ $gameID = (int)$_REQUEST['gameID'];
 // If we are trying to join the game lock it for update, so it won't get changed while we are joining it.
 if ( $User->type['User'] && ( isset($_REQUEST['join']) || isset($_REQUEST['leave']) ) && libHTML::checkTicket() )
 {
+
 	try
 	{
 		require_once(l_r('gamemaster/game.php'));
@@ -41,7 +42,7 @@ if ( $User->type['User'] && ( isset($_REQUEST['join']) || isset($_REQUEST['leave
 		$Variant=libVariant::loadFromGameID($gameID);
 		libVariant::setGlobals($Variant);
 		$Game = $Variant->processGame($gameID);
-
+		
 		// If viewing an archive page make that the title, otherwise us the name of the game
 		libHTML::starthtml(isset($_REQUEST['viewArchive'])?$_REQUEST['viewArchive']:$Game->titleBarName());
 
@@ -83,8 +84,19 @@ else
 		// If viewing an archive page make that the title, otherwise us the name of the game
 		libHTML::starthtml(isset($_REQUEST['viewArchive'])?$_REQUEST['viewArchive']:$Game->titleBarName());
 
+		// In an game with strict rlPolicy don't allow users to join from a Left if they know someone else in this game
+		// Usually after a Mod set them to CD.
+		if ( $Game->Members->isJoined() && !$Game->Members->isTempBanned() && $Game->rlPolicy == 'Strict' && $User->rlGroup < 0 && $Game->Members->ByUserID[$User->id]->status == 'Left')
+		{
+			require_once ("lib/relations.php");			
+			if ($message = libRelations::checkRelationsGame($User, $Game))
+				print "<b>Notice:</b> ".$message;
+				unset($Game->Members->ByUserID[$User->id]);
+		}
+		
 		if ( $Game->Members->isJoined() && !$Game->Members->isTempBanned() )
 		{
+		
 			// We are a member, load the extra code that we might need
 			require_once(l_r('gamemaster/gamemaster.php'));
 			require_once(l_r('board/member.php'));
@@ -93,6 +105,16 @@ else
 			global $Member;
 			$Game->Members->makeUserMember($User->id);
 			$Member = $Game->Members->ByUserID[$User->id];
+			
+			// Advanced-Log
+			$DB->sql_put("INSERT INTO wD_AccessLogAdvanced SET
+							userID   = ".$User->id.",
+							request  = CURRENT_TIMESTAMP,
+							ip       = INET_ATON('".$_SERVER['REMOTE_ADDR']."'),
+							action   = 'Board',
+							memberID = '".$Member->id."'"
+							);
+			
 		}
 	}
 	catch(Exception $e)
@@ -102,7 +124,6 @@ else
 			($User->type['User'] ? l_t("Check your <a href='index.php' class='light'>notices</a> for messages regarding this game."):''));
 	}
 }
-
 
 if ( isset($_REQUEST['viewArchive']) )
 {
@@ -148,7 +169,7 @@ if ( $Game->watched() && isset($_REQUEST['unwatch'])) {
 
 // Before HTML pre-generate everything and check input, so game summary header will be accurate
 
-if( isset($Member) && $Member->status == 'Playing' && $Game->phase!='Finished' )
+if( ( (isset($Member) && $Member->status == 'Playing') || $User->id == $Game->directorUserID) && $Game->phase!='Finished' )
 {
 	if( $Game->phase != 'Pre-game' )
 	{
@@ -160,11 +181,10 @@ if( isset($Member) && $Member->status == 'Playing' && $Game->phase!='Finished' )
 		}
 	}
 
-	// $DB->sql_put("COMMIT");
+	$DB->sql_put("COMMIT");
 
 	if( $Game->processStatus!='Crashed' && $Game->processStatus!='Paused' && $Game->attempts > count($Game->Members->ByID)/2+4  )
 	{
-		$DB->get_lock('gamemaster',1);
 		require_once(l_r('gamemaster/game.php'));
 		$Game = $Game->Variant->processGame($Game->id);
 		$Game->crashed();
@@ -172,12 +192,8 @@ if( isset($Member) && $Member->status == 'Playing' && $Game->phase!='Finished' )
 	}
 	else
 	{
-		if( $Game->Members->votesPassed() && $Game->phase!='Finished' )
+		if( isset($Member) && $Game->Members->votesPassed() && $Game->phase!='Finished' )
 		{
-			$MC->append('processHint',','.$Game->id);
-			
-			$DB->get_lock('gamemaster',1);
-
 			$DB->sql_put("UPDATE wD_Games SET attempts=attempts+1 WHERE id=".$Game->id);
 			$DB->sql_put("COMMIT");
 
@@ -193,7 +209,7 @@ if( isset($Member) && $Member->status == 'Playing' && $Game->phase!='Finished' )
 			{
 				if( $e->getMessage() == "Abandoned" || $e->getMessage() == "Cancelled" )
 				{
-					assert('$Game->phase=="Pre-game" || $e->getMessage() == "Cancelled"');
+					assert($Game->phase == 'Pre-game' || $e->getMessage() == 'Cancelled');
 					$DB->sql_put("COMMIT");
 					libHTML::notice(l_t('Cancelled'), l_t("Game was cancelled or didn't have enough players to start."));
 				}
@@ -204,18 +220,6 @@ if( isset($Member) && $Member->status == 'Playing' && $Game->phase!='Finished' )
 			}
 		}
 		else if( $Game->needsProcess() )
-		{
-			$MC->append('processHint',','.$Game->id);
-		}
-		else if ( false )
-		{
-			$DB->get_lock('gamemaster');
-			$DB->sql_put("COMMIT");
-			// COMMIT and then update the game to indicate that a process is needed, so that the gamemaster will process them, while also checking nothing else has adjusted the process  time
-			$DB->sql_put("UPDATE wD_Games SET processTime=".time()." WHERE id = ".$Game->id." AND processTime = " . $Game->processTime);
-			$DB->sql_put("COMMIT");
-		}
-		else if ( false )
 		{
 			$DB->sql_put("UPDATE wD_Games SET attempts=attempts+1 WHERE id=".$Game->id);
 			$DB->sql_put("COMMIT");
@@ -234,7 +238,7 @@ if( isset($Member) && $Member->status == 'Playing' && $Game->phase!='Finished' )
 				{
 					if( $e->getMessage() == "Abandoned" || $e->getMessage() == "Cancelled" )
 					{
-						assert('$Game->phase=="Pre-game" || $e->getMessage() == "Cancelled"');
+						assert($Game->phase == 'Pre-game' || $e->getMessage() == 'Cancelled');
 						$DB->sql_put("COMMIT");
 						libHTML::notice(l_t('Cancelled'), l_t("Game was cancelled or didn't have enough players to start."));
 					}
@@ -247,6 +251,16 @@ if( isset($Member) && $Member->status == 'Playing' && $Game->phase!='Finished' )
 		}
 	}
 
+	/* This is a bit ugly. BEcause of the countrySwitch-code it might be possible that a Member
+	 * is no longer in the game, once it's processed.
+	 * Skip the next few lines if so.
+	 */
+	if (!(isset($Game->Members->ByUserID[$User->id])) && isset($Member))
+	{
+		unset($Member);
+		goto NoMoreMember;
+	}
+	
 	if( $Game instanceof processGame )
 	{
 		$Game = $Game->Variant->panelGameBoard($Game->id);
@@ -254,22 +268,27 @@ if( isset($Member) && $Member->status == 'Playing' && $Game->phase!='Finished' )
 		$Member = $Game->Members->ByUserID[$User->id];
 	}
 
-	if ( 'Pre-game' != $Game->phase && $Game->phase!='Finished' )
+	if ( 'Pre-game' != $Game->phase && $Game->phase!='Finished' && isset($Member))
 	{
-		$OI = OrderInterface::newBoard();
-		$OI->load();
-
-		$Orders = '<div id="orderDiv'.$Member->id.'">'.$OI->html().'</div>';
-		unset($OI);
-
-		if( $Game->needsProcess() )
+		if ($Game->adminLock == 'No' || $User->type['Admin'] || defined('AdminUserSwitch'))
 		{
-			$MC->append('processHint',','.$Game->id);
+			$OI = OrderInterface::newBoard();
+			$OI->load();
+
+			$Orders = '<div id="orderDiv'.$Member->id.'">'.$OI->html().'</div>';
+			unset($OI);
+		}
+		else
+		{
+			$Orders = '<div align="center" id="orderDiv'.$Member->id.'">Game is currently locked by an admin (usually to fix some errors).</div>';
 		}
 	}
 }
 
-if ( 'Pre-game' != $Game->phase )
+// Skip-target for the CountrySwitch-exit.
+NoMoreMember:
+
+if ( 'Pre-game' != $Game->phase && ( isset($Member) || $User->type['Moderator'] || $User->id == $Game->directorUserID ) )
 {
 	$CB = $Game->Variant->Chatbox();
 
@@ -290,6 +309,37 @@ if ( 'Pre-game' != $Game->phase )
 	libHTML::$footerScript[] = 'makeFormsSafe();';
 }
 
+/*
+ * Display the chatbox in gunboat games if there are unread system messages
+ */
+if ( isset($Member) && count($Member->newMessagesFrom) > 0 && $Game->pressType=='NoPress')
+{
+	$CB = $Game->Variant->Chatbox();
+	$forum = $CB->output(0);
+	$Member->seen(0);
+	unset($CB);
+}
+
+
+/*
+ * Pregame-chat hack
+ */
+
+if ($Game->phase == 'Pre-game')
+{	
+
+	$CB = $Game->Variant->Chatbox();
+
+	$forum = $CB->output(0);
+	unset($CB);
+
+	if (isset($Member))
+		$Member->seen(0);
+
+	libHTML::$footerScript[] = 'makeFormsSafe();';
+}	
+// END PREGAME-CHAT
+
 $map = $Game->mapHTML();
 
 /*if( isset($_REQUEST['goNow']) )
@@ -309,18 +359,31 @@ $Game = $Game->Variant->panelGameBoard($Game->id);//*/
  */
 
 print '</div>';
+
+if (isset(Config::$hiddenVariants) && in_array($Game->Variant->id,Config::$hiddenVariants) && $User->type['Guest'])
+{
+	print '</div>';
+	libHTML::footer();
+	exit;
+}
+
 print '<div class="content-bare content-board-header">';
 print '<div class="boardHeader">'.$Game->contentHeader().'</div>';
 print '</div>';
-print '<div class="content content-follow-on variant'.$Game->Variant->name.'">';
 
 // Now print the forum, map, orders, and summary
 if ( isset($forum) )
 {
+	print '<div class="content content-follow-on variant'.$Game->Variant->name.'">';
 	print $forum.'<div class="hr"></div>';
+	print '</div>';	
 }
 
-print $map.'<div class="hr"></div>';
+// Now print the map
+print $map;
+
+// Now print the orders, and summary
+print '<div style="padding: 0px !important;" class="content content-follow-on variant'.$Game->Variant->name.'"><div class="hr"></div>';
 
 if (isset($Orders))
 {
@@ -328,7 +391,6 @@ if (isset($Orders))
 }
 
 print $Game->summary(true);
-
 
 if($User->type['Moderator'])
 {
@@ -345,11 +407,13 @@ if($User->type['Moderator'])
 			$modActions[] = libHTML::admincp('setProcessTimeToNow',array('gameID'=>$Game->id), l_t('Process now'));
 			$modActions[] = libHTML::admincp('setProcessTimeToPhase',array('gameID'=>$Game->id), l_t('Reset Phase'));
 		}
+		$modActions[] = libHTML::admincp('updateCCIP',array('gameID'=>$Game->id), l_t('Recalculate IP and CC matches'));
 
 		if($User->type['Admin'])
 		{
 			if($Game->processStatus == 'Crashed')
 				$modActions[] = libHTML::admincp('unCrashGames',array('excludeGameIDs'=>''), l_t('Un-crash all crashed games'));
+			$modActions[] = libHTML::admincp('allReady',array('gameID'=>$Game->id), 'Set Ready');
 		}
 
 		if( $Game->phase!='Pre-game' && !$Game->isMemberInfoHidden() )
