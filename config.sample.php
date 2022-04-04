@@ -640,6 +640,10 @@ class Config
 	 * @var bool
 	 */
 	public static $facebookDebug=false;
+
+	public static $EmailNotifications = array(
+		'SendPhaseNotifications' => false
+	);
 }
 
 ?>

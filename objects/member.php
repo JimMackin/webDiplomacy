@@ -178,6 +178,8 @@ class Member
 	 * ChessTimer (Countdown timer)
 	 */
 	public $chessTime;
+
+	public $email;
 	
 	/**
 	 * Create a Member object from a database Member record row
