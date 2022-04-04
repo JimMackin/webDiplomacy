@@ -316,7 +316,8 @@ class Members
 				u.reliabilityRating AS reliabilityRating,		
 				m.pointsWon as pointsWon,
 				IF(s.userID IS NULL,0,1) as online,
-				u.type as userType
+				u.type as userType,
+       			u.email AS email
 			FROM wD_Members m
 			INNER JOIN wD_Users u ON ( m.userID = u.id )
 			LEFT JOIN wD_Sessions s ON ( u.id = s.userID )
@@ -403,6 +404,23 @@ class Members
 				$keep, 'No', $text, $this->Game->name, $this->Game->id);
 
 		}
+	}
+
+	public function sendPhaseEmail(){
+
+		if(empty(Config::$EmailNotifications['SendPhaseNotifications'])){
+			return;
+		}
+		require_once(l_r('objects/mailer.php'));
+		$Mailer = new Mailer();
+		foreach($this->ByStatus['Playing'] as $member){
+			$Mailer->Send(
+				array($member->email=>$member->email),
+				l_t('Jimplomacy New Phase'),
+				l_t("You have a new turn on Jimplomacy")."<br>"
+			);
+		}
+
 	}
 
 	function cantLeaveReason()

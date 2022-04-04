@@ -1123,6 +1123,14 @@ class processGame extends Game
 	{
 		global $DB;
 
+		if(!$gameOver){
+			try{
+				$this->Members->sendPhaseEmail();
+			}catch(Exception $ex){
+
+			}
+		}
+
 		$turn = '';
 		if ( $phase == 'Diplomacy' and $this->phase != 'Pre-game' )
 		{
