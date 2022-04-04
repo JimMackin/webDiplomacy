@@ -1124,13 +1124,6 @@ class processGame extends Game
 		global $DB;
 
 		$turn = '';
-		if(!$gameOver){
-			try{
-				$this->Members->sendPhaseEmail();
-			}catch(Exception $ex){
-
-			}
-		}
 		if ( $phase == 'Diplomacy' and $this->phase != 'Pre-game' )
 		{
 			// If we're moving to Diplomacy, and we're not just starting, advance a turn

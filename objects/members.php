@@ -19,8 +19,6 @@
  */
 
 require_once(l_r('objects/member.php'));
-require_once(l_r('objects/mailer.php'));
-
 /**
  * An object which manages the relationship with a game and its members. Often when
  * dealing with a certain game you're actually only dealing with the members of the
@@ -318,8 +316,7 @@ class Members
 				u.reliabilityRating AS reliabilityRating,		
 				m.pointsWon as pointsWon,
 				IF(s.userID IS NULL,0,1) as online,
-				u.type as userType,
-       			u.email AS email
+				u.type as userType
 			FROM wD_Members m
 			INNER JOIN wD_Users u ON ( m.userID = u.id )
 			LEFT JOIN wD_Sessions s ON ( u.id = s.userID )
@@ -406,21 +403,6 @@ class Members
 				$keep, 'No', $text, $this->Game->name, $this->Game->id);
 
 		}
-	}
-
-	public function sendPhaseEmail(){
-		global $Mailer;
-		if(empty(Config::$EmailNotifications['SendPhaseNotifications'])){
-			return;
-		}
-		foreach($this->ByStatus['Playing'] as $member){
-			$Mailer->Send(
-				array($member->email=>$member->email),
-				l_t('Jimplomacy New Phase'),
-				l_t("You have a new turn on Jimplomacy")."<br>"
-			);
-		}
-
 	}
 
 	function cantLeaveReason()
